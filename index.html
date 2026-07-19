@@ -2,97 +2,46 @@
 <html lang="en-us">
   <head>
     <meta charset="utf-8">
-    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
     <title>Unity Web Player | Five Night's at BIG E</title>
-    <link rel="shortcut icon" href="TemplateData/favicon.ico">
     <link rel="stylesheet" href="TemplateData/style.css">
   </head>
   <body>
-    <div id="loading-text" style="color: white; font-size: 48px; font-family: cursive; text-align: center; margin-top: 20px;"> LOADING... </div>
     <div id="unity-container">
-      <canvas id="unity-canvas" width=960 height=600 tabindex="-1"></canvas>
-      <div id="unity-loading-bar">
-        <div id="unity-logo"></div>
-        <div id="unity-progress-bar-empty">
-          <div id="unity-progress-bar-full"></div>
-        </div>
-      </div>
+      <canvas id="unity-canvas" width=960 height=600></canvas>
     </div>
     <script>
-      var loadingText = document.querySelector("#loading-text");
-      let loadedBytes = 0;
-
-      async function fetchWithProgress(url) {
+      // Helper to fetch and stitch the .part files
+      async function fetchPart(url) {
         const response = await fetch(url);
-        const reader = response.body.getReader();
-        let chunks = [];
-        let received = 0;
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          received += value.length;
-          loadedBytes += value.length;
-          chunks.push(value);
-          loadingText.textContent = "LOADING... " + (loadedBytes / (1024 * 1024)).toFixed(2) + " MB";
-        }
-        let fullBuffer = new Uint8Array(received);
-        let offset = 0;
-        for (let chunk of chunks) {
-          fullBuffer.set(chunk, offset);
-          offset += chunk.length;
-        }
-        return fullBuffer.buffer;
+        return await response.arrayBuffer();
       }
 
-      async function mergeFiles(fileParts) {
-        const buffers = await Promise.all(fileParts.map(part => fetchWithProgress(part)));
-        const mergedBlob = new Blob(buffers);
-        return URL.createObjectURL(mergedBlob);
-      }
-
-      function getParts(file, start, end) {
+      async function getMergedFile(baseName, count) {
         let parts = [];
-        for (let i = start; i <= end; i++) {
-          parts.push(file + ".part" + i);
+        for (let i = 1; i <= count; i++) {
+          parts.push(await fetchPart(baseName + ".part" + i));
         }
-        return parts;
+        return URL.createObjectURL(new Blob(parts));
       }
 
       (async () => {
+        // Stitch the parts together
         const [dataUrl, wasmUrl] = await Promise.all([
-          mergeFiles(getParts("Build/fnae.data", 1, 3)),
-          mergeFiles(getParts("Build/fnae.wasm", 1, 3)),
+          getMergedFile("Build/fnae.data", 3),
+          getMergedFile("Build/fnae.wasm", 3)
         ]);
 
-        var container = document.querySelector("#unity-container");
         var canvas = document.querySelector("#unity-canvas");
-        var loadingBar = document.querySelector("#unity-loading-bar");
-        var progressBarFull = document.querySelector("#unity-progress-bar-full");
-
-        var buildUrl = "Build";
-        var loaderUrl = buildUrl + "/fnae.loader.js";
         var config = {
           dataUrl: dataUrl,
-          frameworkUrl: buildUrl + "/fnae.framework.js",
+          frameworkUrl: "Build/fnae.framework.js",
           codeUrl: wasmUrl,
           streamingAssetsUrl: "StreamingAssets",
-          companyName: "DefaultCompany",
-          productName: "fnae",
-          productVersion: "1.0",
         };
-
-        loadingBar.style.display = "block";
 
         var script = document.createElement("script");
-        script.src = loaderUrl;
-        script.onload = () => {
-          createUnityInstance(canvas, config, (progress) => {
-            progressBarFull.style.width = 100 * progress + "%";
-          }).then((unityInstance) => {
-            loadingBar.style.display = "none";
-            loadingText.remove();
-          });
-        };
+        script.src = "Build/fnae.loader.js";
+        script.onload = () => createUnityInstance(canvas, config);
         document.body.appendChild(script);
       })();
     </script>
